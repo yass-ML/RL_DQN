@@ -1,0 +1,1 @@
+RL Agent using Deep Learning techniques to learn to play Atari's Breakout - implementing the Deep Q-Network (DQN) algorithm from the following paper: https://arxiv.org/pdf/1312.5602 
