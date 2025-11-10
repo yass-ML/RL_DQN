@@ -22,7 +22,7 @@ class BreakoutWrapper(gym.Wrapper):
         obs = self._preprocess(obs=obs)
         self.frame_stack.append(obs)
         return (torch.tensor(np.array(self.frame_stack)).to(torch.float32) / 255.0,
-                total_reward,
+                np.sign(total_reward,dtype=float),
                 terminated,
                 truncated,
                 info)
@@ -34,7 +34,8 @@ class BreakoutWrapper(gym.Wrapper):
         downsampling_size = (84,110)
         gray_obs = cv2.cvtColor(obs, cv2.COLOR_BGR2GRAY)
         downsampled_obs = cv2.resize(gray_obs, downsampling_size, interpolation=cv2.INTER_AREA)
-        return downsampled_obs[:84,:]
+        cropped = downsampled_obs.shape[0] - 84
+        return downsampled_obs[cropped:,:]
     
 
     def reset(self, **kwargs):
@@ -42,8 +43,5 @@ class BreakoutWrapper(gym.Wrapper):
         for i in range(self.frame_stack.maxlen):
             self.frame_stack.append(self._preprocess(obs))
         return torch.tensor(np.array(self.frame_stack)).to(torch.float32) / 255.0, info
-
-
-
 
 

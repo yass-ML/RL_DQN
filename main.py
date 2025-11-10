@@ -15,7 +15,7 @@ gym.register_envs(ale_py)
 
 def main():
     print("Hello from tp4!")
-    device = "mps" if torch.mps.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
     print(f"Device is {device}")
 
 
@@ -43,9 +43,9 @@ def main():
             break
 
         # --- Update frame and Epsilon ---
-        current_frame+=1
+        current_frame+=breakout_env.frame_skip
         agent.eps = start_eps + min(1.0, current_frame / annealing_frames) * (end_eps - start_eps)
-        pbar.update(1)
+        pbar.update(breakout_env.frame_skip)
 
         # --- Act ---
         action = agent.act(current_state)
