@@ -106,11 +106,25 @@ class Agent:
         
         
     def train(self, env, epochs):
-        stats = {"Returns": [], "AvgReturns": [], "EpsCheckpoint": []}
+        stats = {
+            "Returns": [], 
+            "AvgReturns": [], 
+            "EpsCheckpoint": [],
+            "Losses": [],  # NEW: Track TD loss
+            "AvgLosses": [],  # NEW: Average loss every N episodes
+            "Q_Values": [],  # NEW: Average Q-values
+            "Episode_Lengths": [],  # NEW: Steps per episode
+            "Max_Q": [],  # NEW: Max Q-value seen
+            "Min_Q": [],  # NEW: Min Q-value seen
+            "Reward_Per_Step": [],  # NEW: Reward efficiency
+            "Memory_Utilization": [],  # NEW: % of memory used
+            "Learning_Steps_Total": 0,  # NEW: Total optimization steps
+        }
 
 
 
         for ep in tqdm(range(epochs)):
+            episode_length = 0
             state, info = env.reset()
             done  = False
             ep_return = 0
@@ -129,14 +143,25 @@ class Agent:
                     target_b = reward_b + ~done_b* self.gamma* next_q_states_b
                     loss = F.mse_loss(target=target_b, input=q_states_b)
 
+                    stats["Losses"].append(loss.item())
+                    stats["Q_Values"].append(q_states_b.mean().item())
+                    stats["Max_Q"].append(q_states_b.max().item())
+                    stats["Min_Q"].append(q_states_b.min().item())
+                    stats["Learning_Steps_Total"] += 1
+
                     self.model.zero_grad()
                     loss.backward()
                     self.optimizer.step()
                 
                 state = next_state
                 ep_return += reward.item()
+                episode_length += 1
             
             stats["Returns"].append(ep_return)
+            stats["Episode_Lengths"].append(episode_length)
+            stats["Reward_Per_Step"].append(ep_return / max(episode_length, 1))
+            stats["Memory_Utilization"].append(len(self.memory) / self.memory.capacity)
+
             if self.eps > self.min_eps:
                 self.eps += self.eps_decay
             
@@ -144,13 +169,20 @@ class Agent:
                 self.model.save()
                 print(" ")
                 average_returns = np.mean(stats["Returns"][-100:])
+                avg_loss = np.mean(stats["Losses"][-1000:]) if stats["Losses"] else 0  # NEW
+                avg_q_value = np.mean(stats["Q_Values"][-1000:]) if stats["Q_Values"] else 0  # NEW
+                avg_episode_length = np.mean(stats["Episode_Lengths"][-100:])  # NEW
+
                 stats["AvgReturns"].append(average_returns)
+                stats["AvgLosses"].append(avg_loss)  # NEW
                 stats["EpsCheckpoint"].append(self.eps)
 
                 if len(stats["Returns"]) > 100:
-                    print(f"Episode {ep} - Return: {ep_return} - AvgReturn (last 100): {average_returns} - Eps: {self.eps}")
+                    print(f"Episode {ep} - Return: {ep_return:.2f} - AvgReturn (last 100): {average_returns:.2f}")
+                    print(f"  AvgLoss: {avg_loss:.4f} - AvgQ: {avg_q_value:.2f} - AvgEpLen: {avg_episode_length:.1f}")
+                    print(f"  Eps: {self.eps:.3f} - Memory: {stats['Memory_Utilization'][-1]*100:.1f}% - Steps: {stats['Learning_Steps_Total']}")
                 else:
-                    print(f"Episode {ep} - Return: {ep_return} - Eps: {self.eps}")
+                    print(f"Episode {ep} - Return: {ep_return:.2f} - Eps: {self.eps:.3f}")
 
             if ep % 100 == 0:
                 self.target_model.load_state_dict(self.model.state_dict())
@@ -160,25 +192,87 @@ class Agent:
 
         return stats
     
-    def test(self, env, episodes=5, render=False):
-        average_returns = 0.0
+    def test(self, env, episodes=5, render=False, save_video=False, video_folder="videos"):
+        """
+        Test the agent and return comprehensive evaluation metrics.
+        
+        Args:
+            env: Environment to test on
+            episodes: Number of test episodes
+            render: Whether to render during testing
+            save_video: Whether to save video recordings
+            video_folder: Folder to save videos
+        
+        Returns:
+            dict: Comprehensive test statistics
+        """
+        test_stats = {
+            "Returns": [],
+            "Episode_Lengths": [],
+            "Q_Values": [],
+            "Action_Distribution": np.zeros(self.nb_actions),
+            "Max_Q_Per_Episode": [],
+            "Min_Q_Per_Episode": [],
+            "Reward_Per_Step": [],
+        }
+        
+        original_eps = self.eps
+        self.eps = 0.05 # same eps as in paper during evaluation
+        self.model.eval()
+        
         for ep in range(episodes):
             state, info = env.reset()
             done = False
             ep_return = 0
+            ep_length = 0
+            ep_q_values = []
+            
             while not done:
                 if render:
                     env.render()
-                action = self.act(state)
+                
+                # Get Q-values and action
+                with torch.no_grad():
+                    q_vals = self.model(state)
+                    action = torch.argmax(q_vals, dim=1, keepdim=True)
+                    
+                ep_q_values.append(q_vals.max().item())
+                test_stats["Action_Distribution"][action.item()] += 1
+                
                 next_state, reward, done, info = env.step(action)
                 state = next_state
                 ep_return += reward.item()
-            print(f"Test Episode {ep} - Return: {ep_return}")
-            average_returns += ep_return
+                ep_length += 1
+            
+            test_stats["Returns"].append(ep_return)
+            test_stats["Episode_Lengths"].append(ep_length)
+            test_stats["Q_Values"].extend(ep_q_values)
+            test_stats["Max_Q_Per_Episode"].append(max(ep_q_values))
+            test_stats["Min_Q_Per_Episode"].append(min(ep_q_values))
+            test_stats["Reward_Per_Step"].append(ep_return / max(ep_length, 1))
+            
+            print(f"Test Episode {ep} - Return: {ep_return:.2f} - Length: {ep_length} - Avg Q: {np.mean(ep_q_values):.2f}")
         
-        average_returns /= episodes
-        print(f"Average Test Return over {episodes} episodes: {average_returns}")
-        return average_returns
+        # Restore original epsilon
+        self.eps = original_eps
+        self.model.train()
+        
+        # Calculate summary statistics
+        test_stats["Average_Return"] = np.mean(test_stats["Returns"])
+        test_stats["Std_Return"] = np.std(test_stats["Returns"])
+        test_stats["Average_Episode_Length"] = np.mean(test_stats["Episode_Lengths"])
+        test_stats["Average_Q_Value"] = np.mean(test_stats["Q_Values"])
+        test_stats["Action_Distribution"] = test_stats["Action_Distribution"] / test_stats["Action_Distribution"].sum()
+        
+        print(f"\n{'='*60}")
+        print(f"Test Results over {episodes} episodes:")
+        print(f"  Average Return: {test_stats['Average_Return']:.2f} ± {test_stats['Std_Return']:.2f}")
+        print(f"  Average Episode Length: {test_stats['Average_Episode_Length']:.1f}")
+        print(f"  Average Q-Value: {test_stats['Average_Q_Value']:.2f}")
+        print(f"  Action Distribution: {test_stats['Action_Distribution']}")
+        print(f"{'='*60}\n")
+        
+        return test_stats
 
 
 
