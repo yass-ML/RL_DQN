@@ -1,5 +1,5 @@
 import torch
-
+import os
 
 
 class DQN(torch.nn.Module):
@@ -16,6 +16,8 @@ class DQN(torch.nn.Module):
         self.relu3 = torch.nn.ReLU()
         self.output = torch.nn.Linear(in_features=256, out_features=n_actions)
 
+        #self.dropout = torch.nn.Dropout(p=0.2)
+
         self.to(device)
 
 
@@ -26,3 +28,16 @@ class DQN(torch.nn.Module):
         x = x.view(x.size(0), -1)
         x = self.relu3(self.dense(x))
         return self.output(x)
+    
+
+    def save(self, save_path="models/latest.pth"):
+        if not os.path.exists(os.path.dirname(save_path)):
+            os.makedirs(os.path.dirname(save_path))
+        torch.save(self.state_dict(), save_path)
+
+    def load(self, load_path="models/lastest.pth"):
+        try:
+            self.load_state_dict(torch.load(load_path))
+            print(f"Sucessfully loaded saved DQN model {load_path}")
+        except:
+            print(f"No saved model to load at {load_path}")
