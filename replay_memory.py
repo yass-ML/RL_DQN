@@ -4,51 +4,34 @@ import random
 
 class ReplayMemory:
     def __init__(self,capacity=1000000, device="cpu"):
-        # self.data = deque(maxlen=capacity)
-        self.memory = []
+        self.memory = deque(maxlen=capacity)
         self.capacity = capacity
         self.device = device
-        self.position = 0
-        self.memory_max_report = 0
         
         print(f"Replay Memory: {capacity} capacity on {device}")
         if device == "cuda":
             print(f"  Estimated VRAM usage: {capacity * 55 / 1024:.1f} MB (uint8 storage)")
 
 
-    # def store(self, transition):
-    #     transition = (item.to("cpu") for item in transition) # DONE BECAUSE GPU MEMORY FILLS OUT TO RAPIDLY. WILL GO BACK ON DEVICE WHEN SAMPLING
-
-    #     obs_t,a_t,r_t,obs_t_1, done = transition
-    #     if not isinstance(obs_t, torch.Tensor) or not isinstance(obs_t_1, torch.Tensor):
-    #         raise ValueError("Observation should be a tensor of size (84x84x4)")
-        
-    #     self.data.append(transition)
-
     def insert(self, transition):
-        """Store transition as uint8 to save 75% memory"""
+        """Store transition as uint8 to save GPU memory"""
         state, action, reward, done, next_state = transition
         
         # Convert float32 [0,1] to uint8 [0,255] and move to device
         state_uint8 = (state * 255).byte().to(self.device)
         next_state_uint8 = (next_state * 255).byte().to(self.device)
         
-        # Store optimized transition
-        optimized = [
+        optimized_transition = [
             state_uint8,
             action.to(self.device),
             reward.to(self.device),
             done.to(self.device),
             next_state_uint8
         ]
-        
-        if len(self.memory) < self.capacity:
-            self.memory.append(optimized)
-        else:
-            # Circular buffer - overwrite oldest
-            self.memory[self.position] = optimized
-            self.position = (self.position + 1) % self.capacity
-    
+
+        self.memory.append(optimized_transition)
+
+
     def __len__(self) -> int:
         return len(self.memory)
 
