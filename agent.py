@@ -107,6 +107,7 @@ class Agent:
                     self.eps += self.eps_decay
 
                 self.memory.insert([state,action,reward,done,next_state])
+                done = done.item()
 
                 if self.memory.can_sample(batch_size=self.batch_size):
 
@@ -159,7 +160,7 @@ class Agent:
             
             if ep % 10 == 0:
                 self.model.save()
-                # Print detailed stats without breaking the progress bar
+
                 avg_ret_str = f"{average_returns:.2f}" if average_returns is not None else "N/A"
                 avg_loss_str = f"{avg_loss:.4f}" if avg_loss is not None else "N/A"
                 avg_q_str = f"{avg_q_value:.2f}" if avg_q_value is not None else "N/A"
@@ -168,7 +169,7 @@ class Agent:
                 tqdm.write(f"\n{'='*70}")
                 tqdm.write(f"Episode {ep} | Return: {ep_return:.2f} | AvgReturn (100 ep): {avg_ret_str}")
                 tqdm.write(f" AvgLoss (1000 steps): {avg_loss_str} | AvgQ (1000 steps): {avg_q_str} | AvgEpLen (100 ep): {avg_eplen_str}")
-                tqdm.write(f" Epsilon: {self.eps:.3f} | Memory: {stats['Memory_Utilization'][-1]*100:.1f}% | Learning Steps: {stats['Learning_Steps_Total']}")
+                tqdm.write(f" Epsilon: {self.eps:.3f} | Replay Memory Usage: {stats['Memory_Utilization'][-1]*100:.1f}% | Learning Steps: {stats['Learning_Steps_Total']}")
                 tqdm.write(f"{'='*70}\n")
 
             if  self.target_model and n_frame % 10_000 == 0:
@@ -185,6 +186,7 @@ class Agent:
     def test(self, 
              env: Breakout, 
              episodes: int = 5, 
+             force_fire: bool = False,
              render: bool = False, 
              save_video: bool = False, 
              video_folder: str = "videos"):
@@ -204,10 +206,7 @@ class Agent:
         test_stats = {
             "Returns": [],
             "Episode_Lengths": [],
-            "Q_Values": [],
             "Action_Distribution": np.zeros(self.nb_actions),
-            "Max_Q_Per_Episode": [],
-            "Min_Q_Per_Episode": [],
             "Reward_Per_Step": [],
         }
         
@@ -221,32 +220,44 @@ class Agent:
             ep_return = 0
             ep_length = 0
             ep_q_values = []
+            current_lives = info.get('lives', 5)
+            steps_since_reward = 0
+            max_idle_steps = 1000  # Timeout if no reward for 1000 steps
             
             while not done:
                 if render:
                     env.render()
                 
-                # Get Q-values and action
-                with torch.no_grad():
-                    q_vals = self.model(state)
-                    action = torch.argmax(q_vals, dim=1, keepdim=True)
-                    
-                ep_q_values.append(q_vals.max().item())
+                # Check if we lost a life - force FIRE to restart
+                if force_fire and'lives' in info and info['lives'] < current_lives:
+                    action = torch.tensor([[1]], dtype=torch.long)  # FIRE action
+                    current_lives = info['lives']
+                else:
+                    with torch.no_grad():
+                        action = self.act(state)
+                
                 test_stats["Action_Distribution"][action.item()] += 1
                 
                 next_state, reward, done, info = env.step(action)
+                done = done.item()
                 state = next_state
                 ep_return += reward.item()
                 ep_length += 1
+                
+                # Timeout check: if idle for too long, break
+                if reward.item() != 0:
+                    steps_since_reward = 0
+                else:
+                    steps_since_reward += 1
+                    if steps_since_reward >= max_idle_steps:
+                        print(f"  Episode {ep} timed out after {max_idle_steps} idle steps")
+                        break
             
             test_stats["Returns"].append(ep_return)
             test_stats["Episode_Lengths"].append(ep_length)
-            test_stats["Q_Values"].extend(ep_q_values)
-            test_stats["Max_Q_Per_Episode"].append(max(ep_q_values))
-            test_stats["Min_Q_Per_Episode"].append(min(ep_q_values))
             test_stats["Reward_Per_Step"].append(ep_return / max(ep_length, 1))
             
-            print(f"Test Episode {ep} - Return: {ep_return:.2f} - Length: {ep_length} - Avg Q: {np.mean(ep_q_values):.2f}")
+            print(f"Test Episode {ep} - Return: {ep_return:.2f} - Length: {ep_length}")
         
         # Restore original epsilon
         self.eps = original_eps
@@ -256,14 +267,12 @@ class Agent:
         test_stats["Average_Return"] = np.mean(test_stats["Returns"])
         test_stats["Std_Return"] = np.std(test_stats["Returns"])
         test_stats["Average_Episode_Length"] = np.mean(test_stats["Episode_Lengths"])
-        test_stats["Average_Q_Value"] = np.mean(test_stats["Q_Values"])
         test_stats["Action_Distribution"] = test_stats["Action_Distribution"] / test_stats["Action_Distribution"].sum()
         
         print(f"\n{"="*60}")
         print(f"Test Results over {episodes} episodes:")
         print(f"  Average Return: {test_stats["Average_Return"]:.2f} ± {test_stats["Std_Return"]:.2f}")
         print(f"  Average Episode Length: {test_stats["Average_Episode_Length"]:.1f}")
-        print(f"  Average Q-Value: {test_stats["Average_Q_Value"]:.2f}")
         print(f"  Action Distribution: {test_stats["Action_Distribution"]}")
         print(f"{"="*60}\n")
         
