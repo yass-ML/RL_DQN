@@ -19,6 +19,6 @@ if __name__ == "__main__":
 
     model = DQN(n_actions=n_actions,device=device)
     agent = Agent(model=model, start_eps=1.0, min_eps=0.1, nb_actions=n_actions, nb_warmup=1000, memory_capacity=140_000, batch_size=32, device=device, learning_rate=1e-4)
-    stats = agent.train(env, epochs=1000, training_steps=9000)
+    stats = agent.train(env, training_steps=9000)
     with open("stats.json", "w") as f:
         json.dump(stats, f, indent=4)
