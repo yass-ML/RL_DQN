@@ -1,5 +1,4 @@
 import gymnasium as gym
-import cv2
 import numpy as np
 from collections import deque
 import torch
@@ -7,7 +6,7 @@ from PIL import Image
 
 class BreakoutWrapper(gym.Wrapper):
     def __init__(self,game="ALE/Breakout-v5", render_mode="human", frame_skip: int = 4,frame_stack:int=4, device="cpu"):
-        env = gym.make(id=game, render_mode=render_mode)
+        env = gym.make(id=game, render_mode=render_mode) if render_mode else gym.make(id=game)
         super().__init__(env)
         self.frame_skip = frame_skip
         self.frame_stack_len = frame_stack

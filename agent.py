@@ -67,7 +67,7 @@ class DQNAgent():
 
 
 class Agent:
-    def __init__(self,model, device="cpu", start_eps=1.0, min_eps=0.1, nb_warmup=10000,nb_actions=None,memory_capacity=10000,
+    def __init__(self,model, device="cpu", start_eps=1.0, min_eps=0.1, nb_warmup=10000,nb_actions=None,memory_capacity=20_000,
                  batch_size=32, learning_rate=0.00025):
         
         assert nb_actions is not None
@@ -105,7 +105,7 @@ class Agent:
         
         
         
-    def train(self, env, epochs):
+    def train(self, env, epochs, training_steps=None):
         stats = {
             "Returns": [], 
             "AvgReturns": [], 
@@ -119,7 +119,11 @@ class Agent:
             "Reward_Per_Step": [],  # NEW: Reward efficiency
             "Memory_Utilization": [],  # NEW: % of memory used
             "Learning_Steps_Total": 0,  # NEW: Total optimization steps
+            "Total_Frames": 0
         }
+
+        if training_steps < self.nb_warmup:
+            raise ValueError(f"Training steps {training_steps} should be higher than warmup steps {self.nb_warmup} ")
 
 
 
@@ -130,13 +134,17 @@ class Agent:
             ep_return = 0
             while not done:
                 action = self.act(state)
+                stats["Total_Frames"] +=1
 
                 next_state,reward,done,info = env.step(action)
+                reward = torch.clip(reward, min=-1.0, max=1.0) # reward clipping for training
 
                 self.memory.insert([state,action,reward,done,next_state])
 
                 if self.memory.can_sample(batch_size=self.batch_size):
                     state_b, action_b, reward_b, done_b, next_state_b = self.memory.sample(self.batch_size)
+                    reward_b = torch.clip(reward_b, min=-1.0, max=1.0) # reward clipping for training
+
                     q_states_b = self.model(state_b).gather(1, action_b)
                     next_q_states_b = self.target_model(next_state_b)
                     next_q_states_b = torch.max(next_q_states_b,dim=-1, keepdim=True)[0]
