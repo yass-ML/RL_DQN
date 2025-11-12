@@ -6,6 +6,7 @@ class DQN(torch.nn.Module):
     def __init__(self, n_actions, dense_hidden_size=32*9*9,device= "cpu"):
         super().__init__()
         self.device = device
+        self.n_actions = n_actions
 
         self.conv1 = torch.nn.Conv2d(in_channels=4, out_channels=16, kernel_size=8, stride=4)
         self.relu1 = torch.nn.ReLU()
