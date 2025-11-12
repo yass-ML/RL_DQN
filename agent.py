@@ -122,12 +122,14 @@ class Agent:
             "Total_Frames": 0
         }
 
-        if training_steps < self.nb_warmup:
+        if not training_steps or  training_steps < self.nb_warmup:
             raise ValueError(f"Training steps {training_steps} should be higher than warmup steps {self.nb_warmup} ")
 
-
-
-        for ep in tqdm(range(epochs)):
+        episode_length = 0
+        n_frame = 0
+        pbar = tqdm(total=self.nb_warmup + training_steps)
+        ep = 0
+        while n_frame < self.nb_warmup + training_steps:
             episode_length = 0
             state, info = env.reset()
             done  = False
@@ -135,9 +137,14 @@ class Agent:
             while not done:
                 action = self.act(state)
                 stats["Total_Frames"] +=1
+                n_frame +=1
+                pbar.update(1)
 
                 next_state,reward,done,info = env.step(action)
                 reward = torch.clip(reward, min=-1.0, max=1.0) # reward clipping for training
+
+                if self.eps > self.min_eps:
+                    self.eps += self.eps_decay
 
                 self.memory.insert([state,action,reward,done,next_state])
 
@@ -170,8 +177,8 @@ class Agent:
             stats["Reward_Per_Step"].append(ep_return / max(episode_length, 1))
             stats["Memory_Utilization"].append(len(self.memory) / self.memory.capacity)
 
-            if self.eps > self.min_eps:
-                self.eps += self.eps_decay
+            # if self.eps > self.min_eps:
+            #     self.eps += self.eps_decay
             
             if ep % 10 == 0:
                 self.model.save()
@@ -192,11 +199,88 @@ class Agent:
                 else:
                     print(f"Episode {ep} - Return: {ep_return:.2f} - Eps: {self.eps:.3f}")
 
-            if ep % 100 == 0:
+            if  n_frame % 10_000 == 0:   #ep % 100 == 0:
                 self.target_model.load_state_dict(self.model.state_dict())
 
             if ep % 1000 == 0:
                 self.model.save(save_path=f"models/dqn_model_ep{ep}.pth")
+            
+            ep+=1
+            
+        pbar.close()
+        
+
+
+        # for ep in tqdm(range(epochs)):
+        #     episode_length = 0
+        #     state, info = env.reset()
+        #     done  = False
+        #     ep_return = 0
+        #     while not done:
+        #         action = self.act(state)
+        #         stats["Total_Frames"] +=1
+
+        #         next_state,reward,done,info = env.step(action)
+        #         reward = torch.clip(reward, min=-1.0, max=1.0) # reward clipping for training
+
+        #         self.memory.insert([state,action,reward,done,next_state])
+
+        #         if self.memory.can_sample(batch_size=self.batch_size):
+        #             state_b, action_b, reward_b, done_b, next_state_b = self.memory.sample(self.batch_size)
+        #             reward_b = torch.clip(reward_b, min=-1.0, max=1.0) # reward clipping for training
+
+        #             q_states_b = self.model(state_b).gather(1, action_b)
+        #             next_q_states_b = self.target_model(next_state_b)
+        #             next_q_states_b = torch.max(next_q_states_b,dim=-1, keepdim=True)[0]
+        #             target_b = reward_b + ~done_b* self.gamma* next_q_states_b
+        #             loss = F.mse_loss(target=target_b, input=q_states_b)
+
+        #             stats["Losses"].append(loss.item())
+        #             stats["Q_Values"].append(q_states_b.mean().item())
+        #             stats["Max_Q"].append(q_states_b.max().item())
+        #             stats["Min_Q"].append(q_states_b.min().item())
+        #             stats["Learning_Steps_Total"] += 1
+
+        #             self.model.zero_grad()
+        #             loss.backward()
+        #             self.optimizer.step()
+                
+        #         state = next_state
+        #         ep_return += reward.item()
+        #         episode_length += 1
+            
+        #     stats["Returns"].append(ep_return)
+        #     stats["Episode_Lengths"].append(episode_length)
+        #     stats["Reward_Per_Step"].append(ep_return / max(episode_length, 1))
+        #     stats["Memory_Utilization"].append(len(self.memory) / self.memory.capacity)
+
+        #     if self.eps > self.min_eps:
+        #         self.eps += self.eps_decay
+            
+        #     if ep % 10 == 0:
+        #         self.model.save()
+        #         print(" ")
+        #         average_returns = np.mean(stats["Returns"][-100:])
+        #         avg_loss = np.mean(stats["Losses"][-1000:]) if stats["Losses"] else 0  # NEW
+        #         avg_q_value = np.mean(stats["Q_Values"][-1000:]) if stats["Q_Values"] else 0  # NEW
+        #         avg_episode_length = np.mean(stats["Episode_Lengths"][-100:])  # NEW
+
+        #         stats["AvgReturns"].append(average_returns)
+        #         stats["AvgLosses"].append(avg_loss)  # NEW
+        #         stats["EpsCheckpoint"].append(self.eps)
+
+        #         if len(stats["Returns"]) > 100:
+        #             print(f"Episode {ep} - Return: {ep_return:.2f} - AvgReturn (last 100): {average_returns:.2f}")
+        #             print(f"  AvgLoss: {avg_loss:.4f} - AvgQ: {avg_q_value:.2f} - AvgEpLen: {avg_episode_length:.1f}")
+        #             print(f"  Eps: {self.eps:.3f} - Memory: {stats['Memory_Utilization'][-1]*100:.1f}% - Steps: {stats['Learning_Steps_Total']}")
+        #         else:
+        #             print(f"Episode {ep} - Return: {ep_return:.2f} - Eps: {self.eps:.3f}")
+
+        #     if ep % 100 == 0:
+        #         self.target_model.load_state_dict(self.model.state_dict())
+
+        #     if ep % 1000 == 0:
+        #         self.model.save(save_path=f"models/dqn_model_ep{ep}.pth")
 
         return stats
     
