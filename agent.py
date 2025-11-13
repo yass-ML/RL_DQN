@@ -184,6 +184,8 @@ class Agent:
              env: Breakout, 
              episodes: int = 5, 
              force_fire: bool = False,
+             timeout: bool = False,
+             test_eps : float = 0.05,
              render: bool = False, 
              save_video: bool = False, 
              video_folder: str = "videos"):
@@ -203,12 +205,12 @@ class Agent:
         test_stats = {
             "Scores": [],
             "Episode_Lengths": [],
-            "Action_Distribution": np.zeros(self.n_actions),
+            "Action_Distribution": np.zeros(self.n_actions, dtype=int),
             "Score_Per_Step": [],
         }
         
         original_eps = self.eps
-        self.eps = 0.05 # same eps as in paper during evaluation
+        self.eps = test_eps # same eps as in paper during evaluation
         self.model.eval()
         
         for ep in range(episodes):
@@ -240,14 +242,14 @@ class Agent:
                 ep_score += reward.item()
                 ep_length += 1
                 
-                # Timeout check: if idle for too long, break
-                if reward.item() != 0:
-                    steps_since_reward = 0
-                else:
-                    steps_since_reward += 1
-                    if steps_since_reward >= max_idle_steps:
-                        print(f"  Episode {ep} timed out after {max_idle_steps} idle steps")
-                        break
+                if timeout:
+                    if reward.item() != 0:
+                        steps_since_reward = 0
+                    else:
+                        steps_since_reward += 1
+                        if steps_since_reward >= max_idle_steps:
+                            print(f"  Episode {ep} timed out after {max_idle_steps} idle steps")
+                            break
             
             test_stats["Scores"].append(ep_score)
             test_stats["Episode_Lengths"].append(ep_length)
@@ -262,7 +264,7 @@ class Agent:
         test_stats["Average_Score"] = np.mean(test_stats["Scores"])
         test_stats["Std_Return"] = np.std(test_stats["Scores"])
         test_stats["Average_Episode_Length"] = np.mean(test_stats["Episode_Lengths"])
-        test_stats["Action_Distribution"] = test_stats["Action_Distribution"] / test_stats["Action_Distribution"].sum()
+        test_stats["Action_Distribution"] = list(test_stats["Action_Distribution"] / test_stats["Action_Distribution"].sum())
         
         print(f"\n{'='*60}")
         print(f"Test Results over {episodes} episodes:")

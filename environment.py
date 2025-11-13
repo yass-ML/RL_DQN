@@ -24,8 +24,8 @@ class BreakoutWrapper(gym.Wrapper):
         # flag to perform or not pointwise max of the last two frames in the skipping process: From paper Nature on DQN (2015)
         self.max_frame = max_frame 
 
-        for _ in range(frame_stack):
-            self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=device))
+        # for _ in range(frame_stack):
+        #     self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=device))
 
         self.device = device
         self.lives = env.unwrapped.ale.lives()
@@ -69,7 +69,7 @@ class BreakoutWrapper(gym.Wrapper):
 
 
     
-    def _preprocess(self, obs):
+    def _preprocess(self, obs, crop_region: tuple | None = (18,102)):
         """
         This method will take a raw frame (obs) from the environment and resize and crop
         """
@@ -78,8 +78,12 @@ class BreakoutWrapper(gym.Wrapper):
         img = img.resize(downsampling_size)
         img = img.convert("L") # grayscale
         img = np.array(img)
-        cropped = img.shape[0] - 84
-        img = img[cropped:,:]
+        if crop_region:
+            lower_bound,upper_bound = crop_region
+            img = img[lower_bound:upper_bound,:]
+        else:
+            cropped = img.shape[0] - 84
+            img = img[cropped:,:]
         img = torch.tensor(img)
         img = img.unsqueeze(0).unsqueeze(0) # One additional dimension for the image channel (we'll stack 4 images to make a state), the other for batch size
         img = img / 255.0
@@ -89,17 +93,22 @@ class BreakoutWrapper(gym.Wrapper):
     
 
     def reset(self, **kwargs):
-        self.frame_buffer = deque(maxlen=self.frame_skip)
-        self.frame_stack = deque(maxlen=self.frame_stack_len)
-
-        for _ in range(self.frame_stack_len):
-            self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
-
         obs, info = self.env.reset(**kwargs)
         self.lives = self.env.unwrapped.ale.lives()
 
+        self.frame_buffer = deque(maxlen=self.frame_skip)
+        self.frame_stack = deque(maxlen=self.frame_stack_len)
+
         obs = self._preprocess(obs)
-        self.frame_stack.append(obs)
+
+        for _ in range(self.frame_stack_len):
+            # self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
+            self.frame_stack.append(obs)
+
+
+
+
+        # self.frame_stack.append(obs)
         obs = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
 
         return obs, info

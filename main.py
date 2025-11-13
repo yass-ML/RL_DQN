@@ -25,7 +25,8 @@ if __name__ == "__main__":
                   memory_capacity=140_000, 
                   batch_size=32, 
                   device=device, 
-                  learning_rate=0.00025)
+                  learning_rate=0.00025,
+                  gamma=0.99)
     
     stats = agent.train(env, training_steps=9_000_000)
     with open("stats.json", "w") as f:
