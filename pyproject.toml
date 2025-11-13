@@ -1,24 +1,30 @@
 [project]
-name = "my-ml-project"
+name = "dqn"
 version = "0.1.0"
-description = "Project using torch, torchvision, opencv and gymnasium[atari]"
+description = "DQN Agent implementation for Atari games using PyTorch"
 readme = "README.md"
 authors = [
-  { name="Your Name", email="you@example.com" }
+  { name="Yacine Benihaddadene", email="yacine.benihaddadene@epita.fr" }
 ]
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11"
 
 dependencies = [
-  "torch>=2.2.0",         # see CUDA/CPU notes below
+  "torch>=2.2.0", 
   "torchvision>=0.15.2",
-  "opencv-python>=4.8.0",
-  "gymnasium>=0.29.1",
+  "gymnasium[atari]>=0.29.1",
   "pip",
   "tqdm"
 ]
 
 [project.optional-dependencies]
 atari = ["gymnasium[atari]"]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["dqn*"]
 
 [tool.uv]
 # optional: set default groups/extras for `uv sync` if you want
