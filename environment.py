@@ -69,7 +69,7 @@ class BreakoutWrapper(gym.Wrapper):
 
 
     
-    def _preprocess(self, obs, crop_region: tuple | None = (18,102)):
+    def _preprocess(self, obs, crop_region: tuple | None = (20,104)):
         """
         This method will take a raw frame (obs) from the environment and resize and crop
         """
@@ -101,14 +101,14 @@ class BreakoutWrapper(gym.Wrapper):
 
         obs = self._preprocess(obs)
 
-        for _ in range(self.frame_stack_len):
+        for _ in range(self.frame_stack_len -1):
             # self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
             self.frame_stack.append(obs)
 
 
 
 
-        # self.frame_stack.append(obs)
+        self.frame_stack.append(obs)
         obs = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
 
         return obs, info
