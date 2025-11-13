@@ -1,15 +1,15 @@
-from agent import Agent
-from dqn_model import DQN
-from environment import BreakoutWrapper
-import torch
-import numpy as np
-
-import gymnasium as gym
-from gymnasium.wrappers import RecordVideo
-import ale_py
-gym.register_envs(ale_py)
 import json
+import ale_py
+import torch
+import gymnasium as gym
 
+from dqn.agent import Agent
+from dqn.model import DQN
+from dqn.environment import BreakoutWrapper
+
+from gymnasium.wrappers import RecordVideo
+
+gym.register_envs(ale_py)
 
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 

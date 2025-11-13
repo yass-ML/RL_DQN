@@ -1,7 +1,7 @@
 import gymnasium as gym
 import numpy as np
-from collections import deque
 import torch
+from collections import deque
 from PIL import Image
 
 class BreakoutWrapper(gym.Wrapper):
@@ -11,7 +11,9 @@ class BreakoutWrapper(gym.Wrapper):
                  frame_stack:int= 4,
                  device: str = "cpu", 
                  lives_penalty: bool = False,
-                 max_frame: bool = False):
+                 max_frame: bool = False,
+                 crop_region: tuple | None = (20,104),
+                 zeros_init: bool = False):
         
         env = gym.make(id=game, render_mode=render_mode, frameskip=1, repeat_action_probability=0.0)
         super().__init__(env)
@@ -22,13 +24,16 @@ class BreakoutWrapper(gym.Wrapper):
         # flag to perform or not a penalty on reward when losing a life
         self.lives_penalty = lives_penalty
         # flag to perform or not pointwise max of the last two frames in the skipping process: From paper Nature on DQN (2015)
-        self.max_frame = max_frame 
+        self.max_frame = max_frame
+        self.zeros_init = zeros_init
 
-        # for _ in range(frame_stack):
-        #     self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=device))
+        if zeros_init:
+            for _ in range(frame_stack):
+                self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=device))
 
         self.device = device
         self.lives = env.unwrapped.ale.lives()
+        self.crop_region = crop_region
 
     def step(self,action):
         total_reward = 0.0
@@ -69,7 +74,7 @@ class BreakoutWrapper(gym.Wrapper):
 
 
     
-    def _preprocess(self, obs, crop_region: tuple | None = (20,104)):
+    def _preprocess(self, obs):
         """
         This method will take a raw frame (obs) from the environment and resize and crop
         """
@@ -78,8 +83,8 @@ class BreakoutWrapper(gym.Wrapper):
         img = img.resize(downsampling_size)
         img = img.convert("L") # grayscale
         img = np.array(img)
-        if crop_region:
-            lower_bound,upper_bound = crop_region
+        if self.crop_region:
+            lower_bound,upper_bound = self.crop_region
             img = img[lower_bound:upper_bound,:]
         else:
             cropped = img.shape[0] - 84
@@ -102,10 +107,10 @@ class BreakoutWrapper(gym.Wrapper):
         obs = self._preprocess(obs)
 
         for _ in range(self.frame_stack_len -1):
-            # self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
-            self.frame_stack.append(obs)
-
-
+            if self.zeros_init:
+                self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
+            else:
+                self.frame_stack.append(obs)
 
 
         self.frame_stack.append(obs)

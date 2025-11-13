@@ -38,7 +38,8 @@ class DQN(torch.nn.Module):
 
     def load(self, load_path="models/lastest.pth"):
         try:
-            self.load_state_dict(torch.load(load_path))
+            self.load_state_dict(torch.load(load_path, map_location=self.device))
             print(f"Sucessfully loaded saved DQN model {load_path}")
-        except:
+        except Exception as e:
             print(f"No saved model to load at {load_path}")
+            print(f"Error: {type(e).__name__}: {e}")

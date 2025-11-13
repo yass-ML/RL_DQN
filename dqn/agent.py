@@ -1,14 +1,15 @@
-from dqn_model import DQN
-from replay_memory import ReplayMemory
-from environment import BreakoutWrapper as Breakout
 import torch
-from torch.optim import RMSprop, Adam
-import random
 import torch.nn.functional as F
 import numpy as np
+
+from dqn.model import DQN
+from dqn.replay_memory import ReplayMemory
+from dqn.environment import BreakoutWrapper as Breakout
+
+from torch.optim import RMSprop
 from tqdm import tqdm
 
-
+MODEL_SAVE_PATH="models/"
 
 class Agent:
     def __init__(self, 
@@ -156,7 +157,7 @@ class Agent:
             pbar.update(episode_length)
             
             if ep % 10 == 0:
-                self.model.save()
+                self.model.save(f"{MODEL_SAVE_PATH}latest.pth")
 
                 avg_score_str = f"{average_scores:.2f}" if average_scores is not None else "N/A"
                 avg_loss_str = f"{avg_loss:.4f}" if avg_loss is not None else "N/A"
@@ -173,7 +174,7 @@ class Agent:
                 self.target_model.load_state_dict(self.model.state_dict())
 
             if ep % 1000 == 0:
-                self.model.save(save_path=f"models/dqn_model_ep{ep}.pth")
+                self.model.save(save_path=f"{MODEL_SAVE_PATH}dqn_model_ep{ep}.pth")
             
             ep+=1
             

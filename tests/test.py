@@ -1,6 +1,6 @@
-from agent import Agent
-from dqn_model import DQN
-from environment import BreakoutWrapper
+from dqn.agent import Agent
+from dqn.model import DQN
+from dqn.environment import BreakoutWrapper
 import torch
 import numpy as np
 
@@ -13,10 +13,10 @@ import json
 
 
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-model_path = "models/run2/latest.pth"
+model_path = "../models/run2/latest.pth"
 
 if __name__ == "__main__":
-    env = BreakoutWrapper(game="ALE/Breakout-v5", device=device, render_mode=None)
+    env = BreakoutWrapper(game="ALE/Breakout-v5", device=device, render_mode="human", crop_region=None, zeros_init=True)
     n_actions = env.env.action_space.n
 
     model = DQN(n_actions=n_actions,device=device)
