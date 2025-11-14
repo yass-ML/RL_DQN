@@ -5,8 +5,8 @@ from collections import deque
 from PIL import Image
 
 class BreakoutWrapper(gym.Wrapper):
-    def __init__(self,game: str = "ALE/Breakout-v5", 
-                 render_mode: str | None = "human", 
+    def __init__(self,game: str | gym.Env = "ALE/Breakout-v5", 
+                 render_mode: str | None = None, 
                  frame_skip: int = 4,
                  frame_stack:int= 4,
                  device: str = "cpu", 
@@ -15,7 +15,12 @@ class BreakoutWrapper(gym.Wrapper):
                  crop_region: tuple | None = (20,104),
                  zeros_init: bool = False):
         
-        env = gym.make(id=game, render_mode=render_mode, frameskip=1, repeat_action_probability=0.0)
+        if isinstance(game, gym.Env):
+            env = game
+            env.frameskip = 1
+            env.repeat_action_probability = 0.0
+        else:
+            env = gym.make(id=game, render_mode=render_mode, frameskip=1, repeat_action_probability=0.0)
         super().__init__(env)
         self.frame_skip = frame_skip
         self.frame_stack_len = frame_stack

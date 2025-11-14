@@ -14,7 +14,6 @@ MODEL_SAVE_PATH="models/"
 class Agent:
     def __init__(self, 
                  model: DQN,
-                 device: str = "cpu", 
                  start_eps: float = 1.0, 
                  min_eps: float = 0.1,
                  gamma: float = 0.9,
@@ -22,8 +21,12 @@ class Agent:
                  memory_capacity: int = 20_000,
                  batch_size: int = 32, 
                  learning_rate: float = 0.00025,
+                 optimizer: torch.optim.Optimizer = RMSprop,
+                 device: str = "cpu",
                  use_target_model: bool = False,
-                 optimizer: torch.optim.Optimizer = RMSprop):
+                 crop_region: tuple | None = (20,104),
+                 zeros_init: bool = False
+                 ):
         
         self.model = model
         self.model = self.model.to(device)
@@ -50,7 +53,8 @@ class Agent:
         self.gamma = gamma
         self.optimizer = optimizer(self.model.parameters(), lr = self.lr)
 
-        print(f"Starting: eps = {self.eps} - eps decay = {self.eps_decay}")
+        self.crop_region = crop_region
+        self.zeros_init = zeros_init
 
 
     
