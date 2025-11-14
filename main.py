@@ -22,11 +22,11 @@ if __name__ == "__main__":
                   start_eps=1.0, 
                   min_eps=0.1, 
                   nb_warmup=1_000_000, 
-                  memory_capacity=150_000, 
+                  memory_capacity=160_000, 
                   batch_size=32, 
                   device=device, 
                   learning_rate=0.00025,
-                  gamma=0.99)
+                  gamma=0.95)
     
     stats = agent.train(env, training_steps=9_000_000)
     with open("stats.json", "w") as f:
