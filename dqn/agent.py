@@ -5,6 +5,8 @@ import numpy as np
 from dqn.model import DQN
 from dqn.replay_memory import ReplayMemory
 from dqn.environment import BreakoutWrapper as Breakout
+from torch.utils.tensorboard import SummaryWriter
+
 
 from torch.optim import RMSprop
 from tqdm import tqdm
@@ -24,18 +26,21 @@ class Agent:
                  optimizer: torch.optim.Optimizer = RMSprop,
                  device: str = "cpu",
                  use_target_model: bool = False,
-                 crop_region: tuple | None = (20,104),
-                 zeros_init: bool = False
+                 crop_region: tuple | None = (18,102),
+                 zeros_init: bool = False,
+                 log_dir: str | None = None
                  ):
         
         self.model = model
         self.model = self.model.to(device)
+        self.device = device
         self.memory = ReplayMemory(capacity=memory_capacity, device=device)
         
         self.n_actions = self.model.n_actions
         self.nb_warmup = nb_warmup
         self.batch_size = batch_size
         self.lr = learning_rate
+        self.use_target_model = use_target_model
 
         
 
@@ -55,6 +60,7 @@ class Agent:
 
         self.crop_region = crop_region
         self.zeros_init = zeros_init
+        self.writer = SummaryWriter(log_dir=log_dir) if log_dir else None
 
 
     
@@ -62,14 +68,17 @@ class Agent:
         if torch.rand(1) < self.eps:
             return torch.randint(self.n_actions, (1,1))
         else:
-            av = self.model(state).detach()
+            av = self.model((state.float() / 255.0)).detach()
             return torch.argmax(av, dim=1, keepdim=True)
         
         
         
     def train(self, 
               env: Breakout,
-              training_steps: int | None = None):
+              training_steps: int | None = None,
+              eval_episodes: int = 100,
+              eval_interval: int = 50,
+              end_ep_on_life_loss: bool = False):
         
         stats = {
             "Scores": [], 
@@ -90,10 +99,12 @@ class Agent:
         if not training_steps:
             training_steps = 9 * self.nb_warmup # 10% warmup, 90% training
 
+        lives = env.unwrapped.ale.lives()
         episode_length = 0
         n_frame = 0
         pbar = tqdm(total=self.nb_warmup + training_steps)
         ep = 0
+
         while n_frame < self.nb_warmup + training_steps:
             episode_length = 0
             state, _ = env.reset()
@@ -105,6 +116,10 @@ class Agent:
                 n_frame +=1
 
                 next_state,reward,done,info = env.step(action)
+                done = torch.tensor(True).view(1,-1).to(device=self.device) if end_ep_on_life_loss and "lives" in info and info["lives"] < lives else done
+
+
+
                 reward_clipped = torch.clip(reward, min=-1.0, max=1.0) # reward clipping for training
 
                 if self.eps > self.min_eps:
@@ -131,6 +146,12 @@ class Agent:
                     stats["Min_Q"].append(q_states_b.min().item())
                     stats["Learning_Steps"] += 1
 
+                    if self.writer:
+                        self.writer.add_scalar('Loss/train', loss.item(), stats['Learning_Steps'])
+                        self.writer.add_scalar('Q_Values/mean', q_states_b.mean().item(), stats['Learning_Steps'])
+                        self.writer.add_scalar('Q_Values/max', q_states_b.max().item(), stats['Learning_Steps'])
+                        self.writer.add_scalar('Q_Values/min', q_states_b.min().item(), stats['Learning_Steps'])
+
                     self.model.zero_grad()
                     loss.backward()
                     self.optimizer.step()
@@ -144,6 +165,14 @@ class Agent:
             stats["Score_Per_Step"].append(ep_score / max(episode_length, 1))
             stats["Replay_Mem_Usage"].append(len(self.memory) / self.memory.capacity)
 
+            if len(stats["Scores"]) >= 100 and ep % eval_interval == 0 and ep != 0:
+                recent_avg = np.mean(stats["Scores"][-100:])
+                
+                if not hasattr(self, 'best_score') or recent_avg > self.best_score:
+                    self.best_score = recent_avg
+                    self.model.save(f"{MODEL_SAVE_PATH}best_model.pth")
+                    tqdm.write(f"New best model! Avg score: {recent_avg:.2f}")
+
             average_scores = np.mean(stats["Scores"][-100:]) if stats["Scores"] else None
             avg_loss = np.mean(stats["Losses"][-1000:]) if stats["Losses"] else None
             avg_q_value = np.mean(stats["Q_Values"][-1000:]) if stats["Q_Values"] else None
@@ -152,6 +181,25 @@ class Agent:
             stats["AvgScores"].append(average_scores)
             stats["AvgLosses"].append(avg_loss)
             stats["EpsCheckpoint"].append(self.eps)
+
+
+            # TensorBoard logging - per episode
+            if self.writer:
+                self.writer.add_scalar('Episode/score', ep_score, ep)
+                self.writer.add_scalar('Episode/length', episode_length, ep)
+                self.writer.add_scalar('Episode/score_per_step', ep_score / max(episode_length, 1), ep)
+                self.writer.add_scalar('Training/epsilon', self.eps, ep)
+                self.writer.add_scalar('Memory/utilization', len(self.memory) / self.memory.capacity, ep)
+                self.writer.add_scalar('Training/total_frames', n_frame, ep)
+                
+                if average_scores is not None:
+                    self.writer.add_scalar('Episode/avg_score_100', average_scores, ep)
+                if avg_loss is not None:
+                    self.writer.add_scalar('Loss/avg_1000', avg_loss, ep)
+                if avg_q_value is not None:
+                    self.writer.add_scalar('Q_Values/avg_1000', avg_q_value, ep)
+                if avg_episode_length is not None:
+                    self.writer.add_scalar('Episode/avg_length_100', avg_episode_length, ep)
 
             pbar.set_postfix({
                 "Ep": ep,
@@ -179,10 +227,14 @@ class Agent:
 
             if ep % 1000 == 0:
                 self.model.save(save_path=f"{MODEL_SAVE_PATH}dqn_model_ep{ep}.pth")
+
             
             ep+=1
             
         pbar.close()
+        if self.writer:
+            self.writer.close()
+
         return stats
     
     def test(self, 
@@ -193,7 +245,8 @@ class Agent:
              test_eps : float = 0.05,
              render: bool = False, 
              save_video: bool = False, 
-             video_folder: str = "videos"):
+             video_folder: str = "videos",
+             verbose: bool = True) -> dict:
         """
         Test the agent and return comprehensive evaluation metrics.
         
@@ -223,10 +276,9 @@ class Agent:
             done = False
             ep_score = 0
             ep_length = 0
-            ep_q_values = []
             current_lives = info.get('lives', 5)
             steps_since_reward = 0
-            max_idle_steps = 1000  # Timeout if no reward for 1000 steps
+            max_idle_steps = 2500  # Timeout if no reward for 2500 steps
             
             while not done:
                 if render:
@@ -260,7 +312,8 @@ class Agent:
             test_stats["Episode_Lengths"].append(ep_length)
             test_stats["Score_Per_Step"].append(ep_score / max(ep_length, 1))
             
-            print(f"Test Episode {ep} - Score: {ep_score:.2f} - Length: {ep_length}")
+            if verbose:
+                print(f"Test Episode {ep} - Score: {ep_score:.2f} - Length: {ep_length}")
         
 
         self.eps = original_eps
@@ -271,12 +324,14 @@ class Agent:
         test_stats["Average_Episode_Length"] = np.mean(test_stats["Episode_Lengths"])
         test_stats["Action_Distribution"] = list(test_stats["Action_Distribution"] / test_stats["Action_Distribution"].sum())
         
-        print(f"\n{'='*60}")
-        print(f"Test Results over {episodes} episodes:")
-        print(f"  Average Score: {test_stats['Average_Score']:.2f} ± {test_stats['Std_Return']:.2f}")
-        print(f"  Average Episode Length: {test_stats['Average_Episode_Length']:.1f}")
-        print(f"  Action Distribution: {test_stats['Action_Distribution']}")
-        print(f"\n{'='*60}")
+
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Test Results over {episodes} episodes:")
+            print(f"  Average Score: {test_stats['Average_Score']:.2f} ± {test_stats['Std_Return']:.2f}")
+            print(f"  Average Episode Length: {test_stats['Average_Episode_Length']:.1f}")
+            print(f"  Action Distribution: {test_stats['Action_Distribution']}")
+            print(f"\n{'='*60}")
         
         return test_stats
 

@@ -17,19 +17,16 @@ class ReplayMemory:
         """Store transition as uint8 to save GPU memory"""
         state, action, reward, done, next_state = transition
         
-        # Convert float32 [0,1] to uint8 [0,255] and move to device
-        state_uint8 = (state * 255).byte().to(self.device)
-        next_state_uint8 = (next_state * 255).byte().to(self.device)
         
-        optimized_transition = [
-            state_uint8,
+        transition = [
+            state.to(self.device),
             action.to(self.device),
             reward.to(self.device),
             done.to(self.device),
-            next_state_uint8
+            next_state.to(self.device)
         ]
 
-        self.memory.append(optimized_transition)
+        self.memory.append(transition)
 
 
     def __len__(self) -> int:
@@ -42,7 +39,7 @@ class ReplayMemory:
         batch = random.sample(self.memory, batch_size)
         batch = list(zip(*batch))
         
-        # Convert uint8 back to float32 [0,1] - already on correct device
+        # Convert uint8 back to float32 [0,1]
         states = torch.cat([b for b in batch[0]]).float() / 255.0
         actions = torch.cat([b for b in batch[1]])
         rewards = torch.cat([b for b in batch[2]])
@@ -52,5 +49,5 @@ class ReplayMemory:
         return [states, actions, rewards, dones, next_states]
     
 
-    def can_sample(self,batch_size, factor=10):
+    def can_sample(self,batch_size, factor=50):
         return len(self.memory) >= batch_size * factor

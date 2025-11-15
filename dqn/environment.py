@@ -12,8 +12,9 @@ class BreakoutWrapper(gym.Wrapper):
                  device: str = "cpu", 
                  lives_penalty: bool = False,
                  max_frame: bool = False,
-                 crop_region: tuple | None = (20,104),
-                 zeros_init: bool = False):
+                 crop_region: tuple | None = (18,102),
+                 zeros_init: bool = False,
+                 to_uint: bool = True):
         
         if isinstance(game, gym.Env):
             env = game
@@ -31,10 +32,12 @@ class BreakoutWrapper(gym.Wrapper):
         # flag to perform or not pointwise max of the last two frames in the skipping process: From paper Nature on DQN (2015)
         self.max_frame = max_frame
         self.zeros_init = zeros_init
+        self.dtype = np.uint8 if to_uint else np.float32
 
         if zeros_init:
             for _ in range(frame_stack):
-                self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=device))
+                # self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=device))
+                self.frame_stack.append(np.zeros(shape=(1,1,84,84), dtype=self.dtype))
 
         self.device = device
         self.lives = env.unwrapped.ale.lives()
@@ -70,7 +73,10 @@ class BreakoutWrapper(gym.Wrapper):
         observation = self._preprocess(observation)
 
         self.frame_stack.append(observation)
-        observation = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
+
+        stacked_frames = np.concatenate(list(self.frame_stack), axis=1)  # CPU operation
+        observation = torch.from_numpy(stacked_frames).to(self.device)  # ONE GPU tensor
+        # observation = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
 
         total_reward = torch.tensor(total_reward).view(1,-1).float().to(device=self.device)
         done = torch.tensor(done or truncated).view(1,-1).to(device=self.device)
@@ -87,18 +93,22 @@ class BreakoutWrapper(gym.Wrapper):
         img = Image.fromarray(obs)
         img = img.resize(downsampling_size)
         img = img.convert("L") # grayscale
-        img = np.array(img)
+        img = np.array(img, dtype=self.dtype)
         if self.crop_region:
             lower_bound,upper_bound = self.crop_region
             img = img[lower_bound:upper_bound,:]
         else:
             cropped = img.shape[0] - 84
             img = img[cropped:,:]
-        img = torch.tensor(img)
-        img = img.unsqueeze(0).unsqueeze(0) # One additional dimension for the image channel (we'll stack 4 images to make a state), the other for batch size
-        img = img / 255.0
+        # img = torch.tensor(img)
+        # img = img.unsqueeze(0).unsqueeze(0) # One additional dimension for the image channel (we'll stack 4 images to make a state), the other for batch size
+        # #img = img / 255.0
 
-        return img.to(device=self.device)
+        # return img.to(device=self.device)
+
+        return img[np.newaxis, np.newaxis, :, :]
+
+
 
     
 
@@ -113,13 +123,16 @@ class BreakoutWrapper(gym.Wrapper):
 
         for _ in range(self.frame_stack_len -1):
             if self.zeros_init:
-                self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
+                # self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
+                self.frame_stack.append(np.zeros(shape=(1,1,84,84), dtype=self.dtype))
             else:
                 self.frame_stack.append(obs)
 
 
         self.frame_stack.append(obs)
-        obs = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
+        # obs = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
+        stacked_frames = np.concatenate(list(self.frame_stack), axis=1)  # CPU operation
+        obs = torch.from_numpy(stacked_frames).to(self.device)  # ONE GPU tensor
 
         return obs, info
 
