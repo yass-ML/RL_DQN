@@ -32,11 +32,11 @@ if __name__ == "__main__":
                   device=device, 
                   learning_rate=0.00025,
                   gamma=0.99,
-                  log_dir=log_dir)
+                  log_dir=None)
     
-    env = BreakoutWrapper(game=game, device=device, zeros_init=agent.zeros_init, crop_region=agent.crop_region)
+    env = BreakoutWrapper(game=game, device=device)
     
-    stats = agent.train(env, training_steps=9_000_000, eval_episodes=10, eval_interval=50, end_ep_on_life_loss=True)
+    stats = agent.train(env, training_steps=9_000_000, eval_interval=50, end_ep_on_life_loss=True)
     with open("stats.json", "w") as f:
         json.dump(stats, f, indent=4)
 
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     settings = {
         "game_id": game_id,
         "device": device,
-        "learning_rate": agent.learning_rate,
+        "learning_rate": agent.lr,
         "gamma": agent.gamma,
         "batch_size": agent.batch_size,
         "memory_capacity": agent.memory.capacity,

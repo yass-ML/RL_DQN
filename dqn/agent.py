@@ -1,3 +1,4 @@
+from collections import deque
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -26,8 +27,6 @@ class Agent:
                  optimizer: torch.optim.Optimizer = RMSprop,
                  device: str = "cpu",
                  use_target_model: bool = False,
-                 crop_region: tuple | None = (18,102),
-                 zeros_init: bool = False,
                  log_dir: str | None = None
                  ):
         
@@ -58,25 +57,34 @@ class Agent:
         self.gamma = gamma
         self.optimizer = optimizer(self.model.parameters(), lr = self.lr)
 
-        self.crop_region = crop_region
-        self.zeros_init = zeros_init
         self.writer = SummaryWriter(log_dir=log_dir) if log_dir else None
 
 
     
-    def act(self, state: torch.Tensor) -> torch.Tensor:
+    def act(self, frame_indices: list) -> int:
+        """
+        Select action based on a list of 4 frame indices.
+        
+        Args:
+            frame_indices: List of 4 frame indices [idx-3, idx-2, idx-1, idx] 
+                        representing the current state
+        
+        Returns:
+            Action as integer (not tensor, for consistency)
+        """
+        state = self.memory.get_stacked_state(frame_indices)  # (1, 4, 84, 84)
+        
         if torch.rand(1) < self.eps:
-            return torch.randint(self.n_actions, (1,1))
+            return torch.randint(self.n_actions, (1, 1)).item()
         else:
-            av = self.model((state.float() / 255.0)).detach()
-            return torch.argmax(av, dim=1, keepdim=True)
+            q_values = self.model(state).detach()
+            return torch.argmax(q_values, dim=1, keepdim=True).item()
         
         
         
     def train(self, 
               env: Breakout,
               training_steps: int | None = None,
-              eval_episodes: int = 100,
               eval_interval: int = 50,
               end_ep_on_life_loss: bool = False):
         
@@ -107,26 +115,32 @@ class Agent:
 
         while n_frame < self.nb_warmup + training_steps:
             episode_length = 0
-            state, _ = env.reset()
-            done  = False
+            frame, _ = env.reset()
+            frame_idx = self.memory.insert_frame(frame)
+
+            frame_stack = deque([frame_idx] * 4, maxlen=4)
+            ep_done  = False
             ep_score = 0
-            while not done:
-                action = self.act(state)
+            while not ep_done:
+                action = self.act(frame_indices=list(frame_stack))
                 stats["Total_Frames"] = n_frame
                 n_frame +=1
 
-                next_state,reward,done,info = env.step(action)
-                done = torch.tensor(True).view(1,-1).to(device=self.device) if end_ep_on_life_loss and "lives" in info and info["lives"] < lives else done
-
-
-
-                reward_clipped = torch.clip(reward, min=-1.0, max=1.0) # reward clipping for training
+                next_frame,reward,ep_done,info = env.step(action)
+                next_frame_idx = self.memory.insert_frame(next_frame)
+                done = True if end_ep_on_life_loss and "lives" in info and info["lives"] < lives else ep_done
 
                 if self.eps > self.min_eps:
                     self.eps += self.eps_decay
+                
+                # Clip reward for training stability
+                reward_clipped = np.clip(reward, -1.0, 1.0)
+                self.memory.insert_transition(next_frame_idx=next_frame_idx,action=action,reward=reward_clipped,done=done)
+                
 
-                self.memory.insert([state,action,reward_clipped,done,next_state])
-                done = done.item()
+                frame_stack.append(next_frame_idx)
+
+                ep_done = done
 
                 if self.memory.can_sample(batch_size=self.batch_size):
 
@@ -156,8 +170,7 @@ class Agent:
                     loss.backward()
                     self.optimizer.step()
                 
-                state = next_state
-                ep_score += reward.item()
+                ep_score += reward
                 episode_length += 1
             
             stats["Scores"].append(ep_score)
@@ -272,7 +285,10 @@ class Agent:
         self.model.eval()
         
         for ep in range(episodes):
-            state, info = env.reset()
+            frame, info = env.reset()
+            frame_idx = self.memory.insert_frame(frame)
+            frame_stack = deque([frame_idx] * 4, maxlen=4)
+            
             done = False
             ep_score = 0
             ep_length = 0
@@ -285,22 +301,23 @@ class Agent:
                     env.render()
                 
                 if force_fire and'lives' in info and info['lives'] < current_lives:
-                    action = torch.tensor([[1]], dtype=torch.long)  # FIRE action
+                    action = 1  # FIRE action
                     current_lives = info['lives']
                 else:
                     with torch.no_grad():
-                        action = self.act(state)
+                        action = self.act(list(frame_stack))
                 
-                test_stats["Action_Distribution"][action.item()] += 1
+                test_stats["Action_Distribution"][action] += 1
                 
-                next_state, reward, done, info = env.step(action)
-                done = done.item()
-                state = next_state
-                ep_score += reward.item()
+                next_frame, reward, done, info = env.step(action)
+                next_frame_idx = self.memory.insert_frame(next_frame)
+                frame_stack.append(next_frame_idx)
+                
+                ep_score += reward
                 ep_length += 1
                 
                 if timeout:
-                    if reward.item() != 0:
+                    if reward != 0:
                         steps_since_reward = 0
                     else:
                         steps_since_reward += 1

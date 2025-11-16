@@ -8,13 +8,10 @@ class BreakoutWrapper(gym.Wrapper):
     def __init__(self,game: str | gym.Env = "ALE/Breakout-v5", 
                  render_mode: str | None = None, 
                  frame_skip: int = 4,
-                 frame_stack:int= 4,
                  device: str = "cpu", 
                  lives_penalty: bool = False,
                  max_frame: bool = False,
-                 crop_region: tuple | None = (18,102),
-                 zeros_init: bool = False,
-                 to_uint: bool = True):
+                 crop_region: tuple | None = (18,102)):
         
         if isinstance(game, gym.Env):
             env = game
@@ -24,20 +21,12 @@ class BreakoutWrapper(gym.Wrapper):
             env = gym.make(id=game, render_mode=render_mode, frameskip=1, repeat_action_probability=0.0)
         super().__init__(env)
         self.frame_skip = frame_skip
-        self.frame_stack_len = frame_stack
         self.frame_buffer = deque(maxlen=frame_skip)
-        self.frame_stack = deque(maxlen=frame_stack)
         # flag to perform or not a penalty on reward when losing a life
         self.lives_penalty = lives_penalty
         # flag to perform or not pointwise max of the last two frames in the skipping process: From paper Nature on DQN (2015)
         self.max_frame = max_frame
-        self.zeros_init = zeros_init
-        self.dtype = np.uint8 if to_uint else np.float32
-
-        if zeros_init:
-            for _ in range(frame_stack):
-                # self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=device))
-                self.frame_stack.append(np.zeros(shape=(1,1,84,84), dtype=self.dtype))
+        self.dtype = np.uint8
 
         self.device = device
         self.lives = env.unwrapped.ale.lives()
@@ -63,23 +52,16 @@ class BreakoutWrapper(gym.Wrapper):
         
 
         if self.max_frame:
-            # the pointwise maximum of the two last frames in the skip phase make one observation => 
-            # we will stack 4 of those observations to make an input frame for the dqn
+            # the pointwise maximum of the two last frames in the skip phase make one observation
             observation = np.max(list(self.frame_buffer)[-2:], axis=0) 
         else:
             observation = self.frame_buffer[-1]
 
+        # Preprocess and return SINGLE frame (no stacking here)
+        observation = self._preprocess(observation)  # Shape: (84, 84) as uint8
 
-        observation = self._preprocess(observation)
-
-        self.frame_stack.append(observation)
-
-        stacked_frames = np.concatenate(list(self.frame_stack), axis=1)  # CPU operation
-        observation = torch.from_numpy(stacked_frames).to(self.device)  # ONE GPU tensor
-        # observation = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
-
-        total_reward = torch.tensor(total_reward).view(1,-1).float().to(device=self.device)
-        done = torch.tensor(done or truncated).view(1,-1).to(device=self.device)
+        total_reward = float(total_reward)
+        done = bool(done or truncated)
 
         return observation, total_reward, done, info
 
@@ -87,9 +69,10 @@ class BreakoutWrapper(gym.Wrapper):
     
     def _preprocess(self, obs):
         """
-        This method will take a raw frame (obs) from the environment and resize and crop
+        This method will take a raw frame (obs) from the environment and resize and crop.
+        Returns a single frame as numpy array (84, 84) uint8.
         """
-        downsampling_size = (84,110) # for now, we resize then crop, we'll try directly resizing to 84 x 84 if poor perfs
+        downsampling_size = (84,110)
         img = Image.fromarray(obs)
         img = img.resize(downsampling_size)
         img = img.convert("L") # grayscale
@@ -100,13 +83,8 @@ class BreakoutWrapper(gym.Wrapper):
         else:
             cropped = img.shape[0] - 84
             img = img[cropped:,:]
-        # img = torch.tensor(img)
-        # img = img.unsqueeze(0).unsqueeze(0) # One additional dimension for the image channel (we'll stack 4 images to make a state), the other for batch size
-        # #img = img / 255.0
-
-        # return img.to(device=self.device)
-
-        return img[np.newaxis, np.newaxis, :, :]
+        
+        return img  # Shape: (84, 84) uint8
 
 
 
@@ -117,22 +95,9 @@ class BreakoutWrapper(gym.Wrapper):
         self.lives = self.env.unwrapped.ale.lives()
 
         self.frame_buffer = deque(maxlen=self.frame_skip)
-        self.frame_stack = deque(maxlen=self.frame_stack_len)
 
-        obs = self._preprocess(obs)
-
-        for _ in range(self.frame_stack_len -1):
-            if self.zeros_init:
-                # self.frame_stack.append(torch.zeros((1,1,84,84), dtype=torch.float32).to(device=self.device))
-                self.frame_stack.append(np.zeros(shape=(1,1,84,84), dtype=self.dtype))
-            else:
-                self.frame_stack.append(obs)
-
-
-        self.frame_stack.append(obs)
-        # obs = torch.cat(list(self.frame_stack), dim=1) # concatenate along the channel dimension
-        stacked_frames = np.concatenate(list(self.frame_stack), axis=1)  # CPU operation
-        obs = torch.from_numpy(stacked_frames).to(self.device)  # ONE GPU tensor
+        # Preprocess and return SINGLE frame (no stacking here)
+        obs = self._preprocess(obs)  # Shape: (84, 84) as uint8
 
         return obs, info
 
