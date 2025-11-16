@@ -22,10 +22,10 @@ class ReplayMemory:
 
 
 
-    def insert_frame(self,frame: np.array) -> int:
+    def insert_frame(self,frame: torch.Tensor) -> int:
         assert frame.shape == (84,84), f"Game frame not of right shape: got {frame.shape}, expected (84,84)"
         frame_idx = self.write_pos
-        self.frames[self.write_pos] = torch.from_numpy(frame)
+        self.frames[self.write_pos] = frame
         self.write_pos = (self.write_pos + 1) % self.capacity
         if self.size < self.capacity:
             self.size +=1
@@ -58,7 +58,7 @@ class ReplayMemory:
         # Find if any of the first 3 frames are terminal
         num_to_pad = 0
         for i in range(stack_size - 1):  # Don't check the last frame
-            if self.dones[frame_indices[i]].item():  # Episode ended at this frame
+            if self.dones[frame_indices[i]]:  # Episode ended at this frame
                 num_to_pad = i + 1  # Pad all frames up to and including this one
                 break
         

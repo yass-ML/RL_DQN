@@ -75,10 +75,11 @@ class Agent:
         state = self.memory.get_stacked_state(frame_indices)  # (1, 4, 84, 84)
         
         if torch.rand(1) < self.eps:
-            return torch.randint(self.n_actions, (1, 1)).item()
+            return torch.randint(self.n_actions, (1, 1))
         else:
-            q_values = self.model(state).detach()
-            return torch.argmax(q_values, dim=1, keepdim=True).item()
+            with torch.no_grad():
+                q_values = self.model(state)
+            return torch.argmax(q_values, dim=1, keepdim=True)
         
         
         
@@ -128,13 +129,13 @@ class Agent:
 
                 next_frame,reward,ep_done,info = env.step(action)
                 next_frame_idx = self.memory.insert_frame(next_frame)
-                done = True if end_ep_on_life_loss and "lives" in info and info["lives"] < lives else ep_done
+                done = torch.tensor(True).to(self.device) if end_ep_on_life_loss and "lives" in info and info["lives"] < lives else ep_done
 
                 if self.eps > self.min_eps:
                     self.eps += self.eps_decay
                 
                 # Clip reward for training stability
-                reward_clipped = np.clip(reward, -1.0, 1.0)
+                reward_clipped = torch.clip(reward, -1.0, 1.0)
                 self.memory.insert_transition(next_frame_idx=next_frame_idx,action=action,reward=reward_clipped,done=done)
                 
 
@@ -161,10 +162,10 @@ class Agent:
                     stats["Learning_Steps"] += 1
 
                     if self.writer:
-                        self.writer.add_scalar('Loss/train', loss.item(), stats['Learning_Steps'])
-                        self.writer.add_scalar('Q_Values/mean', q_states_b.mean().item(), stats['Learning_Steps'])
-                        self.writer.add_scalar('Q_Values/max', q_states_b.max().item(), stats['Learning_Steps'])
-                        self.writer.add_scalar('Q_Values/min', q_states_b.min().item(), stats['Learning_Steps'])
+                        self.writer.add_scalar('Loss/train', loss, stats['Learning_Steps'])
+                        self.writer.add_scalar('Q_Values/mean', q_states_b.mean(), stats['Learning_Steps'])
+                        self.writer.add_scalar('Q_Values/max', q_states_b.max(), stats['Learning_Steps'])
+                        self.writer.add_scalar('Q_Values/min', q_states_b.min(), stats['Learning_Steps'])
 
                     self.model.zero_grad()
                     loss.backward()
@@ -173,13 +174,13 @@ class Agent:
                 ep_score += reward
                 episode_length += 1
             
-            stats["Scores"].append(ep_score)
+            stats["Scores"].append(ep_score.item())
             stats["Episode_Lengths"].append(episode_length)
             stats["Score_Per_Step"].append(ep_score / max(episode_length, 1))
             stats["Replay_Mem_Usage"].append(len(self.memory) / self.memory.capacity)
 
             if len(stats["Scores"]) >= 100 and ep % eval_interval == 0 and ep != 0:
-                recent_avg = np.mean(stats["Scores"][-100:])
+                recent_avg = torch.mean(torch.tensor(stats["Scores"][-100:]))
                 
                 if not hasattr(self, 'best_score') or recent_avg > self.best_score:
                     self.best_score = recent_avg
@@ -260,6 +261,7 @@ class Agent:
              save_video: bool = False, 
              video_folder: str = "videos",
              verbose: bool = True) -> dict:
+        #TODO FIX
         """
         Test the agent and return comprehensive evaluation metrics.
         
@@ -287,7 +289,7 @@ class Agent:
         for ep in range(episodes):
             frame, info = env.reset()
             frame_idx = self.memory.insert_frame(frame)
-            frame_stack = deque([frame_idx] * 4, maxlen=4)
+            frame_stack = deque([frame] * 4, maxlen=4)
             
             done = False
             ep_score = 0
@@ -310,8 +312,8 @@ class Agent:
                 test_stats["Action_Distribution"][action] += 1
                 
                 next_frame, reward, done, info = env.step(action)
-                next_frame_idx = self.memory.insert_frame(next_frame)
-                frame_stack.append(next_frame_idx)
+                #next_frame_idx = self.memory.insert_frame(next_frame)
+                #frame_stack.append(next_frame_idx)
                 
                 ep_score += reward
                 ep_length += 1

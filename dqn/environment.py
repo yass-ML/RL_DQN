@@ -76,8 +76,8 @@ class BreakoutWrapper(gym.Wrapper):
         img = Image.fromarray(obs)
         img = img.resize(downsampling_size)
         img = img.convert("L") # grayscale
-        #img = np.array(img, dtype=self.dtype)
-        img = torch.tensor(data=img, device=self.device,dtype=torch.uint8)
+        img = np.array(img, dtype=self.dtype)
+        img = torch.from_numpy(img).to(self.device)
         if self.crop_region:
             lower_bound,upper_bound = self.crop_region
             img = img[lower_bound:upper_bound,:]
