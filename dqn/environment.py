@@ -60,8 +60,8 @@ class BreakoutWrapper(gym.Wrapper):
         # Preprocess and return SINGLE frame (no stacking here)
         observation = self._preprocess(observation)  # Shape: (84, 84) as uint8
 
-        total_reward = float(total_reward)
-        done = bool(done or truncated)
+        total_reward = torch.tensor(total_reward).float().to(self.device)
+        done = torch.tensor(done or truncated).to(self.device)
 
         return observation, total_reward, done, info
 
@@ -76,7 +76,8 @@ class BreakoutWrapper(gym.Wrapper):
         img = Image.fromarray(obs)
         img = img.resize(downsampling_size)
         img = img.convert("L") # grayscale
-        img = np.array(img, dtype=self.dtype)
+        #img = np.array(img, dtype=self.dtype)
+        img = torch.tensor(data=img, device=self.device,dtype=torch.uint8)
         if self.crop_region:
             lower_bound,upper_bound = self.crop_region
             img = img[lower_bound:upper_bound,:]
