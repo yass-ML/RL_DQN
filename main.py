@@ -31,8 +31,8 @@ if __name__ == "__main__":
                   batch_size=32, 
                   device=device, 
                   learning_rate=0.00025,
-                  gamma=0.99,
-                  log_dir=log_dir)
+                  gamma=0.95,
+                  log_dir=None)
     
     env = BreakoutWrapper(game=game, device=device, zeros_init=agent.zeros_init, crop_region=agent.crop_region)
     

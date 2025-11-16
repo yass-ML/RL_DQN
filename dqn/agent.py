@@ -116,7 +116,7 @@ class Agent:
                 n_frame +=1
 
                 next_state,reward,done,info = env.step(action)
-                done = torch.tensor(True).view(1,-1).to(device=self.device) if end_ep_on_life_loss and "lives" in info and info["lives"] < lives else done
+                buffer_done = torch.tensor(True).view(1,-1).to(device=self.device) if end_ep_on_life_loss and "lives" in info and info["lives"] < lives else done
 
 
 
@@ -125,7 +125,7 @@ class Agent:
                 if self.eps > self.min_eps:
                     self.eps += self.eps_decay
 
-                self.memory.insert([state,action,reward_clipped,done,next_state])
+                self.memory.insert([state,action,reward_clipped,buffer_done,next_state])
                 done = done.item()
 
                 if self.memory.can_sample(batch_size=self.batch_size):
